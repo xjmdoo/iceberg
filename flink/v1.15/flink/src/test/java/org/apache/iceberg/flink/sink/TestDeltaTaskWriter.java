@@ -340,13 +340,14 @@ public class TestDeltaTaskWriter extends TableTestBase {
   }
 
   private TaskWriterFactory<RowData> createTaskWriterFactory(List<Integer> equalityFieldIds) {
-    return new RowDataTaskWriterFactory(
-        SerializableTable.copyOf(table),
-        FlinkSchemaUtil.convert(table.schema()),
-        128 * 1024 * 1024,
-        format,
-        table.properties(),
-        equalityFieldIds,
-        false);
+    return new PositionDeltaWriterFactory(SerializableTable.copyOf(table), FlinkSchemaUtil.convert(table.schema()), 128 * 1024 * 1024);
+//    return new RowDataTaskWriterFactory(
+//        SerializableTable.copyOf(table),
+//        FlinkSchemaUtil.convert(table.schema()),
+//        128 * 1024 * 1024,
+//        format,
+//        table.properties(),
+//        equalityFieldIds,
+//        false);
   }
 }
