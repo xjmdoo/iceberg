@@ -24,23 +24,34 @@ import java.util.List;
 import java.util.Map;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
-import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.PartitionKey;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.io.FileAppenderFactory;
-import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.OutputFileFactory;
+import org.apache.iceberg.*;
+import org.apache.iceberg.flink.RowDataWrapper;
+import org.apache.iceberg.io.*;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.Tasks;
 
-class PartitionedDeltaWriter extends BaseDeltaTaskWriter {
+// TODO: Create a base class for this which implements common methods with the unpratitioned writer
+class PartitionedDeltaWriter implements TaskWriter<RowData> {
 
+  private final Table table;
+  private final PartitionSpec spec;
+  private final FileFormat format;
+  private final FileAppenderFactory<RowData> appenderFactory;
+  private final OutputFileFactory fileFactory;
+  private final FileIO io;
+  private final long targetFileSize;
+  private final Schema schema;
+  private final RowType flinkSchema;
+  private final List<Integer> equalityFieldIds;
+  private final boolean upsert;
   private final PartitionKey partitionKey;
+  private final boolean usePosDelete;
+  private final RowDataWrapper wrapper;
 
-  private final Map<PartitionKey, RowDataDeltaWriter> writers = Maps.newHashMap();
+  private final Map<PartitionKey, TaskWriter<RowData>> writers = Maps.newHashMap();
 
   PartitionedDeltaWriter(
+          Table table,
       PartitionSpec spec,
       FileFormat format,
       FileAppenderFactory<RowData> appenderFactory,
@@ -50,35 +61,58 @@ class PartitionedDeltaWriter extends BaseDeltaTaskWriter {
       Schema schema,
       RowType flinkSchema,
       List<Integer> equalityFieldIds,
-      boolean upsert) {
-    super(
-        spec,
-        format,
-        appenderFactory,
-        fileFactory,
-        io,
-        targetFileSize,
-        schema,
-        flinkSchema,
-        equalityFieldIds,
-        upsert);
+      boolean upsert,
+      boolean usePosDelete) {
+    this.table = table;
+    this.spec = spec;
+    this.format = format;
+    this.appenderFactory = appenderFactory;
+    this.fileFactory = fileFactory;
+    this.io = io;
+    this.targetFileSize = targetFileSize;
+    this.schema = schema;
+    this.flinkSchema = flinkSchema;
+    this.equalityFieldIds = equalityFieldIds;
+    this.upsert = upsert;
     this.partitionKey = new PartitionKey(spec, schema);
+    this.usePosDelete = usePosDelete;
+
+    this.wrapper = new RowDataWrapper(flinkSchema, schema.asStruct());
   }
 
-  @Override
-  RowDataDeltaWriter route(RowData row) {
-    partitionKey.partition(wrapper().wrap(row));
+  private TaskWriter<RowData> createWriter(PartitionKey partition) {
+    return usePosDelete ? new PositionDeltaTaskWriter(table, spec, partition, format, appenderFactory, fileFactory, io, targetFileSize, schema, flinkSchema, equalityFieldIds, upsert) :
+            new BaseDeltaTaskWriter(spec, partition, format, appenderFactory, fileFactory, io, targetFileSize, schema, flinkSchema, equalityFieldIds, upsert);
+  }
 
-    RowDataDeltaWriter writer = writers.get(partitionKey);
+  public void write(RowData row) throws IOException {
+    TaskWriter<RowData> writer = route(row);
+    writer.write(row);
+  }
+
+  TaskWriter<RowData> route(RowData row) {
+    partitionKey.partition(this.wrapper.wrap(row));
+
+    TaskWriter<RowData> writer = writers.get(partitionKey);
     if (writer == null) {
       // NOTICE: we need to copy a new partition key here, in case of messing up the keys in
       // writers.
       PartitionKey copiedKey = partitionKey.copy();
-      writer = new RowDataDeltaWriter(copiedKey);
+      writer = createWriter(copiedKey);
       writers.put(copiedKey, writer);
     }
 
     return writer;
+  }
+
+  @Override
+  public WriteResult complete() throws IOException {
+    return null; // TODO
+  }
+
+  @Override
+  public void abort() throws IOException {
+    // TODO
   }
 
   @Override
@@ -87,7 +121,7 @@ class PartitionedDeltaWriter extends BaseDeltaTaskWriter {
       Tasks.foreach(writers.values())
           .throwFailureWhenFinished()
           .noRetry()
-          .run(RowDataDeltaWriter::close, IOException.class);
+          .run(TaskWriter::close, IOException.class);
 
       writers.clear();
     } catch (IOException e) {

@@ -104,8 +104,66 @@ public abstract class BaseTaskWriter<T> implements TaskWriter<T> {
         .build();
   }
 
+  protected interface BaseDeltaWriter {}
+
+  protected abstract class BasePositionDeltaWriter implements BaseDeltaWriter, Closeable {
+    private final StructProjection structProjection;
+    private RollingFileWriter dataWriter;
+    private SortedPosDeleteWriter<T> posDeleteWriter;
+
+    protected BasePositionDeltaWriter(StructLike partition, Schema schema, Schema deleteSchema) {
+      this.dataWriter = new RollingFileWriter(partition);
+      this.posDeleteWriter =
+              new SortedPosDeleteWriter<>(appenderFactory, fileFactory, format, partition);
+      this.structProjection = StructProjection.create(schema, deleteSchema);
+    }
+
+    /** Wrap the data as a {@link StructLike}. */
+    protected abstract StructLike asStructLike(T data);
+
+    /** Wrap the passed in key of a row as a {@link StructLike} */
+    protected abstract StructLike asStructLikeKey(T key);
+
+    public void write(T row) throws IOException {
+      // TODO check for prev entries and delete them if needed
+      dataWriter.write(row);
+    }
+
+    public void delete(CharSequence path, long pos) {
+      posDeleteWriter.delete(path, pos);
+    }
+
+    @Override
+    public void close() throws IOException {
+      try {
+        // Close data writer and add completed data files.
+        if (dataWriter != null) {
+          try {
+            dataWriter.close();
+          } finally {
+            dataWriter = null;
+          }
+        }
+
+        // Add the completed pos-delete files.
+        if (posDeleteWriter != null) {
+          try {
+            // complete will call close
+            completedDeleteFiles.addAll(posDeleteWriter.complete());
+            referencedDataFiles.addAll(posDeleteWriter.referencedDataFiles());
+          } finally {
+            posDeleteWriter = null;
+          }
+        }
+      } catch (IOException | RuntimeException e) {
+        setFailure(e);
+        throw e;
+      }
+    }
+  }
+
   /** Base equality delta writer to write both insert records and equality-deletes. */
-  protected abstract class BaseEqualityDeltaWriter implements Closeable {
+  protected abstract class BaseEqualityDeltaWriter implements BaseDeltaWriter, Closeable {
     private final StructProjection structProjection;
     private RollingFileWriter dataWriter;
     private RollingEqDeleteWriter eqDeleteWriter;

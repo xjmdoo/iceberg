@@ -133,6 +133,7 @@ public class RowDataTaskWriterFactory implements TaskWriterFactory<RowData> {
       // Initialize a task writer to write both INSERT and equality DELETE.
       if (spec.isUnpartitioned()) {
         return new UnpartitionedDeltaWriter(
+                table,
             spec,
             format,
             appenderFactory,
@@ -145,6 +146,7 @@ public class RowDataTaskWriterFactory implements TaskWriterFactory<RowData> {
             upsert);
       } else {
         return new PartitionedDeltaWriter(
+                table,
             spec,
             format,
             appenderFactory,
@@ -154,7 +156,7 @@ public class RowDataTaskWriterFactory implements TaskWriterFactory<RowData> {
             schema,
             flinkSchema,
             equalityFieldIds,
-            upsert);
+            upsert, true);
       }
     }
   }

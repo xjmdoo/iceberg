@@ -37,7 +37,7 @@ import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.TypeUtil;
 
-abstract class BaseDeltaTaskWriter extends BaseTaskWriter<RowData> {
+class BaseDeltaTaskWriter extends BaseTaskWriter<RowData> {
 
   private final Schema schema;
   private final Schema deleteSchema;
@@ -45,9 +45,11 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<RowData> {
   private final RowDataWrapper keyWrapper;
   private final RowDataProjection keyProjection;
   private final boolean upsert;
+  private final EqRowDataDeltaWriter writer;
 
   BaseDeltaTaskWriter(
       PartitionSpec spec,
+      PartitionKey partition,
       FileFormat format,
       FileAppenderFactory<RowData> appenderFactory,
       OutputFileFactory fileFactory,
@@ -65,18 +67,16 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<RowData> {
         new RowDataWrapper(FlinkSchemaUtil.convert(deleteSchema), deleteSchema.asStruct());
     this.keyProjection = RowDataProjection.create(schema, deleteSchema);
     this.upsert = upsert;
+    this.writer = new EqRowDataDeltaWriter(partition);
   }
 
-  abstract RowDataDeltaWriter route(RowData row);
-
+  // TODO move this to other base class
   RowDataWrapper wrapper() {
     return wrapper;
   }
 
   @Override
   public void write(RowData row) throws IOException {
-    RowDataDeltaWriter writer = route(row);
-
     switch (row.getRowKind()) {
       case INSERT:
       case UPDATE_AFTER:
@@ -102,8 +102,13 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<RowData> {
     }
   }
 
-  protected class RowDataDeltaWriter extends BaseEqualityDeltaWriter {
-    RowDataDeltaWriter(PartitionKey partition) {
+  @Override
+  public void close() throws IOException {
+    // TODO
+  }
+
+  protected class EqRowDataDeltaWriter extends BaseEqualityDeltaWriter {
+    EqRowDataDeltaWriter(PartitionKey partition) {
       super(partition, schema, deleteSchema);
     }
 

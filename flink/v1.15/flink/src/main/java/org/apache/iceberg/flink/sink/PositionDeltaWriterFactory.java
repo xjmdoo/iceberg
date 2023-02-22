@@ -44,22 +44,27 @@ public class PositionDeltaWriterFactory implements TaskWriterFactory<RowData> {
     private final FlinkFileWriterFactory writerFactory;
     private OutputFileFactory outputFileFactory;
 
-    public PositionDeltaWriterFactory(Table table, RowType flinkSchema, long targetFileSizeInBytes) {
+    private final FileFormat format;
+
+    public PositionDeltaWriterFactory(Table table, RowType flinkSchema, long targetFileSizeInBytes, FileFormat format) {
         this.table = table;
         this.flinkSchema = flinkSchema;
         this.targetFileSizeInBytes = targetFileSizeInBytes;
+        this.format = format;
         // TODO: need to build the object with correct configs
         this.writerFactory = FlinkFileWriterFactory
                 .builderFor(table)
                 .dataSchema(table.schema())
                 .dataFlinkType(flinkSchema)
+                .dataFileFormat(format)
+                .deleteFileFormat(format)
                 .build();
     }
 
     @Override
     public void initialize(int taskId, int attemptId) {
         // TODO: need to build the object with correct configs
-        outputFileFactory = OutputFileFactory.builderFor(table, taskId, attemptId).build();
+        outputFileFactory = OutputFileFactory.builderFor(table, taskId, attemptId).format(format).build();
     }
 
     @Override

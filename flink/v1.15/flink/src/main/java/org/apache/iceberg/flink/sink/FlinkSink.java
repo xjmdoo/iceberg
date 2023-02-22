@@ -572,15 +572,15 @@ public class FlinkSink {
 
     Table serializableTable = SerializableTable.copyOf(table);
     FileFormat format = flinkWriteConf.dataFileFormat();
-    TaskWriterFactory<RowData> taskWriterFactory = new PositionDeltaWriterFactory(serializableTable, flinkRowType, flinkWriteConf.targetDataFileSize());
-//        new RowDataTaskWriterFactory(
-//            serializableTable,
-//            flinkRowType,
-//            flinkWriteConf.targetDataFileSize(),
-//            format,
-//            writeProperties(table, format, flinkWriteConf),
-//            equalityFieldIds,
-//            flinkWriteConf.upsertMode());
+//    TaskWriterFactory<RowData> taskWriterFactory = new PositionDeltaWriterFactory(serializableTable, flinkRowType, flinkWriteConf.targetDataFileSize(), format);
+    TaskWriterFactory<RowData> taskWriterFactory =   new RowDataTaskWriterFactory(
+            serializableTable,
+            flinkRowType,
+            flinkWriteConf.targetDataFileSize(),
+            format,
+            writeProperties(table, format, flinkWriteConf),
+            equalityFieldIds,
+            flinkWriteConf.upsertMode());
     return new IcebergStreamWriter<>(table.name(), taskWriterFactory);
   }
 
